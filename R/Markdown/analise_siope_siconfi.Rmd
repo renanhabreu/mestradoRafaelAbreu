@@ -1,0 +1,401 @@
+---
+title: "Análise Comparativa: Gasto por Aluno (SIOPE vs. SICONFI)"
+subtitle: "Municípios Selecionados (2015-2023)"
+author: "Rafael Abreu"
+output:
+  html_document:
+    toc: true
+    toc_float: true
+    toc_depth: 3
+    theme: united
+    number_sections: false
+lang: pt-BR
+---
+
+```{r setup, include=FALSE}
+# Opções globais do R Markdown
+knitr::opts_chunk$set(echo = TRUE,       # Mostra o código
+                      message = FALSE,   # Oculta mensagens
+                      warning = FALSE)   # Oculta avisos
+```
+
+## 1. Configuração do Ambiente
+
+Carrega pacotes. O `tidyverse` é uma coleção de pacotes que inclui o `dplyr` (para manipulação de dados) e o `ggplot2` (para gráficos). O `knitr` e `kableExtra` ajudam a formatar tabelas.
+
+```{r carregar-pacotes, message=FALSE, warning=FALSE}
+# Instale os pacotes se ainda não os tiver
+# install.packages("tidyverse")
+# install.packages("knitr")
+# install.packages("kableExtra")
+#install.packages("patchwork")
+
+library(tidyverse)  # Pacote principal para manipulação e gráficos
+library(knitr)      # Para formatar tabelas
+library(kableExtra) # Funções extras para tabelas
+library(patchwork)
+```
+
+## 2. Carga e Preparação dos Dados
+
+```{r carregar-dados}
+dados <- readxl::read_excel("dados_mucuri.xlsx", sheet = "gasto")
+
+# Visualizar os primeiros dados
+kable(head(dados), caption = "Amostra dos Dados Carregados") %>%
+  kable_styling(bootstrap_options = "striped", full_width = F)
+```
+
+### 2.1. Criando Campos Calculados
+
+Colunas de diferença.
+
+* `diff_abs` (Diferença Absoluta): SIOPE - SICONFI
+* `diff_perc` (Diferença Percentual): A diferença como uma porcentagem do valor do SICONFI.
+
+```{r criar-diferencas}
+dados <- dados %>%
+  mutate(
+    diff_abs = gasto_aluno_SIOPE - gasto_aluno_SICONFI,
+    diff_perc = (diff_abs / gasto_aluno_SICONFI) * 100
+  )
+
+kable(head(dados), caption = "Amostra dos Dados com Campos Calculados") %>%
+  kable_styling(bootstrap_options = "striped", full_width = F)
+```
+
+## 3. Análise Descritiva Geral
+
+```{r estatisticas-gerais}
+# Gasto e diferença
+estatisticas_gerais <- dados %>%
+  select(gasto_aluno_SIOPE, gasto_aluno_SICONFI, diff_abs, diff_perc) %>%
+  summary()
+
+# Sumário
+print(estatisticas_gerais)
+```
+
+Desvio padrão (sd) e coeficiente de variação (cv).
+
+```{r estatisticas-gerais-detalhada}
+dados %>%
+  summarise(
+    Fonte = "Geral",
+    Media_SIOPE = mean(gasto_aluno_SIOPE, na.rm = TRUE),
+    Media_SICONFI = mean(gasto_aluno_SICONFI, na.rm = TRUE),
+    Media_Diff_Abs = mean(diff_abs, na.rm = TRUE),
+    SD_Diff_Abs = sd(diff_abs, na.rm = TRUE),
+    CV_Diff_Abs = (SD_Diff_Abs / Media_Diff_Abs) * 100,
+    Media_Diff_Perc = mean(diff_perc, na.rm = TRUE),
+    SD_Diff_Perc = sd(diff_perc, na.rm = TRUE)
+  ) %>%
+  kable(caption = "Estatísticas Descritivas Gerais (2015-2023)", digits = 2) %>%
+  kable_styling(bootstrap_options = "striped", full_width = T)
+```
+
+### 3.1. Visualização da Distribuição Geral
+
+As tabelas de resumo acima mostram que a diferença média não é zero. Os gráficos de densidade abaixo nos ajudam a visualizar a distribuição completa dessas diferenças.
+
+```{r grafico-densidade-diferenca, fig.width=10, fig.height=4}
+# Gráfico para a Diferença Absoluta
+p1 <- ggplot(dados, aes(x = diff_abs)) +
+  geom_density(fill = "steelblue", alpha = 0.7) +
+  geom_vline(xintercept = 0, linetype = "dashed", color = "red", linewidth = 1) +
+  geom_vline(aes(xintercept = mean(diff_abs)), linetype = "dotted", color = "black", linewidth = 1) +
+  labs(
+    title = "Distribuição da Diferença Absoluta (SIOPE - SICONFI)",
+    subtitle = "Linha vermelha = 0; Linha preta pontilhada = Média",
+    x = "Diferença Absoluta (R$)",
+    y = "Densidade"
+  ) +
+  theme_minimal()
+
+# Gráfico para a Diferença Percentual
+p2 <- ggplot(dados, aes(x = diff_perc)) +
+  geom_density(fill = "coral", alpha = 0.7) +
+  geom_vline(xintercept = 0, linetype = "dashed", color = "red", linewidth = 1) +
+  geom_vline(aes(xintercept = mean(diff_perc)), linetype = "dotted", color = "black", linewidth = 1) +
+  labs(
+    title = "Distribuição da Diferença Percentual (SIOPE - SICONFI)",
+    subtitle = "Linha vermelha = 0; Linha preta pontilhada = Média",
+    x = "Diferença Percentual (%)",
+    y = "Densidade"
+  ) +
+  theme_minimal()
+
+# (Opcional, mas útil) Instalar o 'patchwork' para mostrar lado a lado
+# install.packages("patchwork")
+# library(patchwork)
+  p1 + p2
+ 
+# Se não tiver o patchwork, o Rmd vai mostrá-los um após o outro.
+#print(p1)
+#print(p2)
+```
+
+### 3.2. Visualização: Boxplots (Resumo Estatístico)
+
+Os boxplots abaixo são a visualização direta da tabela `summary()`. Eles mostram os quartis, medianas e outliers para os gastos e suas diferenças.
+
+```{r graficos-descritivos-boxplots, fig.width=10, fig.height=5}
+# --- GRÁFICO 1: Boxplot dos Níveis de Gasto ---
+dados_long_gasto <- dados %>%
+  select(gasto_aluno_SIOPE, gasto_aluno_SICONFI) %>%
+  pivot_longer(
+    cols = c(gasto_aluno_SIOPE, gasto_aluno_SICONFI),
+    names_to = "Fonte",
+    values_to = "Gasto_por_Aluno"
+  )
+
+b1 <- ggplot(dados_long_gasto, aes(x = Fonte, y = Gasto_por_Aluno, fill = Fonte)) +
+  geom_boxplot(alpha = 0.8) +
+  scale_fill_manual(values = c("gasto_aluno_SIOPE" = "steelblue", "gasto_aluno_SICONFI" = "coral")) +
+  labs(title = "Distribuição dos Gastos por Aluno (SIOPE vs. SICONFI)",
+       x = "Fonte de Dados",
+       y = "Gasto por Aluno (R$)") +
+  theme_light() +
+  theme(legend.position = "none")
+
+# --- GRÁFICO 2: Boxplot das Diferenças ---
+dados_long_diff <- dados %>%
+  select(diff_abs, diff_perc) %>%
+  pivot_longer(
+    cols = c(diff_abs, diff_perc),
+    names_to = "Metrica_Diferenca",
+    values_to = "Valor"
+  )
+
+b2 <- ggplot(dados_long_diff, aes(x = Metrica_Diferenca, y = Valor, fill = Metrica_Diferenca)) +
+  geom_boxplot(alpha = 0.8, show.legend = FALSE) +
+  geom_hline(yintercept = 0, linetype = "dashed", color = "red", linewidth = 1) +
+  facet_wrap(~ Metrica_Diferenca, scales = "free") + # scales = "free" é crucial
+  scale_fill_manual(values = c("diff_abs" = "darkgreen", "diff_perc" = "purple")) +
+  labs(title = "Distribuição das Diferenças (Absoluta e Percentual)",
+       x = "Métrica de Diferença",
+       y = "Valor") +
+  theme_light()
+
+# Mostra os dois gráficos lado a lado
+b1 + b2
+```
+
+### 3.3. Visualização: Outras Comparações (ECDF)
+
+Além dos boxplots, um gráfico de **ECDF (Função de Distribuição Cumulativa Empírica)** é uma excelente forma de comparar as duas distribuições de gastos (SIOPE vs. SICONFI).
+
+```{r grafico-descritivo-ecdf, fig.width=8, fig.height=5}
+#dados 'dados_long_gasto' criados no bloco anterior
+ggplot(dados_long_gasto, aes(x = Gasto_por_Aluno, color = Fonte)) +
+  stat_ecdf(linewidth = 1.2) + # A função principal do ECDF
+  scale_color_manual(values = c("gasto_aluno_SIOPE" = "steelblue", "gasto_aluno_SICONFI" = "coral")) +
+  labs(
+    title = "Comparação das Distribuições de Gasto (ECDF)",
+    subtitle = "O gráfico mostra a % de observações abaixo de um certo valor de gasto.",
+    x = "Gasto por Aluno (R$)",
+    y = "Proporção Cumulativa (0 a 1)"
+  ) +
+  theme_bw() +
+  theme(legend.position = "bottom")
+```
+
+## 4. Análise por Município
+
+Comportamento médio de cada município ao longo do período.
+
+### 4.1. Tabela por Município
+
+Diferença absoluta média para cada município.
+
+```{r tabela-por-municipio}
+analise_municipio <- dados %>%
+  group_by(nom_munic, id_ente) %>%
+  summarise(
+    tamanho = first(tamanho), # Adicionado para usar no gráfico abaixo
+    Media_SIOPE = mean(gasto_aluno_SIOPE, na.rm = TRUE),
+    Media_SICONFI = mean(gasto_aluno_SICONFI, na.rm = TRUE),
+    Media_Diff_Abs = mean(diff_abs, na.rm = TRUE),
+    SD_Diff_Abs = sd(diff_abs, na.rm = TRUE),
+    Media_Diff_Perc = mean(diff_perc, na.rm = TRUE)
+  ) %>%
+  arrange(desc(Media_Diff_Abs)) # Ordenar pela maior diferença
+
+kable(analise_municipio, 
+      caption = "Diferença Média (SIOPE - SICONFI) por Município (2015-2023)", 
+      digits = 2) %>%
+  kable_styling(bootstrap_options = c("striped", "hover"), full_width = F)
+```
+
+#### 4.1.1. Gráfico: "Gap" Médio por Município e Tamanho (Dumbbell Plot)
+
+O gráfico de halteres (dumbbell plot) abaixo é uma forma "menos usual" e muito eficaz de visualizar o "gap" entre as duas fontes (SIOPE e SICONFI) para cada município. Ele é uma visualização direta da tabela acima, mas agrupado por porte.
+
+```{r grafico-dumbbell-municipio, fig.width=10, fig.height=8}
+# Carregar o pacote ggalt (precisa instalar: install.packages("ggalt"))
+# library(ggalt) 
+# Se não puder/quiser usar ggalt, podemos usar geom_segment
+
+ggplot(analise_municipio, aes(y = fct_reorder(nom_munic, Media_SIOPE), 
+                             x = Media_SICONFI, xend = Media_SIOPE)) +
+  # Este geom_segment cria a "barra" do haltere
+  geom_segment(aes(yend = fct_reorder(nom_munic, Media_SIOPE)), 
+               color = "grey", linewidth = 1.5, alpha = 0.7) + 
+  # Pontos para SICONFI e SIOPE
+  geom_point(aes(color = "SICONFI"), size = 4) +
+  geom_point(aes(x = Media_SIOPE, color = "SIOPE"), size = 4) +
+  # Agrupa por tamanho
+  facet_grid(tamanho ~ ., scales = "free_y", space = "free_y") +
+  scale_color_manual(values = c("SIOPE" = "steelblue", "SICONFI" = "coral")) +
+  labs(
+    title = "Gap Médio do Gasto por Aluno (SIOPE vs. SICONFI)",
+    subtitle = "Agrupado por Tamanho do Município (Médias 2015-2023)",
+    x = "Gasto Médio por Aluno (R$)",
+    y = "Município",
+    color = "Fonte de Dados"
+  ) +
+  theme_bw() +
+  theme(legend.position = "bottom")
+```
+
+### 4.2. Gráfico: Séries Temporais por Município
+
+```{r pivotar-dados}
+dados_long <- dados %>%
+  pivot_longer(
+    cols = c(gasto_aluno_SIOPE, gasto_aluno_SICONFI),
+    names_to = "Fonte",
+    values_to = "Gasto_por_Aluno"
+  )
+
+# Amostra dos dados "longos"
+kable(head(dados_long), caption = "Dados em Formato Longo (para Gráficos)") %>%
+  kable_styling(bootstrap_options = "striped", full_width = F)
+```
+
+Agora, vamos gerar o gráfico facetado (em painéis).
+
+```{r grafico-facetado-municipio, fig.width=12, fig.height=9}
+ggplot(dados_long, aes(x = ano, y = Gasto_por_Aluno, color = Fonte, group = Fonte)) +
+  geom_line(linewidth = 1) +
+  geom_point() +
+  facet_wrap(~ nom_munic, scales = "free_y", ncol = 4) +
+  labs(
+    title = "Comparação Gasto por Aluno (SIOPE vs. SICONFI) por Município",
+    subtitle = "Período: 2015-2023",
+    x = "Ano",
+    y = "Gasto por Aluno (R$)",
+    color = "Fonte de Dados"
+  ) +
+  scale_x_continuous(breaks = seq(2015, 2023, by = 2)) +
+  theme_bw() + # Tema limpo
+  theme(
+    legend.position = "bottom",
+    strip.text = element_text(size = 8, face = "bold"), # Nomes dos municípios
+    axis.text.x = element_text(angle = 45, hjust = 1)
+  )
+```
+
+#### 4.2.1. Gráfico: Evolução da Diferença Percentual
+
+O gráfico acima mostra os níveis de gasto, mas não a diferença. O gráfico abaixo foca em plotar a `diff_perc` ao longo do tempo. Isso nos ajuda a ver se a discrepância entre as fontes está aumentando ou diminuindo.
+
+```{r grafico-facetado-diferenca, fig.width=12, fig.height=9}
+ggplot(dados, aes(x = ano, y = diff_perc)) +
+  geom_line(color = "darkgreen", linewidth = 1) +
+  geom_point(color = "darkgreen") +
+  geom_hline(yintercept = 0, linetype = "dashed", color = "red") +
+  facet_wrap(~ nom_munic, ncol = 4) +
+  labs(
+    title = "Evolução da Diferença Percentual (SIOPE - SICONFI) / SICONFI",
+    subtitle = "Período: 2015-2023. Linha vermelha = 0% de diferença.",
+    x = "Ano",
+    y = "Diferença Percentual (%)"
+  ) +
+  scale_x_continuous(breaks = seq(2015, 2023, by = 2)) +
+  theme_bw() +
+  theme(
+    strip.text = element_text(size = 8, face = "bold"),
+    axis.text.x = element_text(angle = 45, hjust = 1)
+  )
+```
+
+## 5. Análise por Cluster (Tamanho do Município)
+
+### 5.1. Tabela por Tamanho
+
+```{r tabela-por-tamanho}
+analise_tamanho <- dados %>%
+  group_by(tamanho) %>%
+  summarise(
+    N_Obs = n(),
+    Media_SIOPE = mean(gasto_aluno_SIOPE, na.rm = TRUE),
+    Media_SICONFI = mean(gasto_aluno_SICONFI, na.rm = TRUE),
+    Media_Diff_Abs = mean(diff_abs, na.rm = TRUE),
+    SD_Diff_Abs = sd(diff_abs, na.rm = TRUE),
+    Media_Diff_Perc = mean(diff_perc, na.rm = TRUE)
+  ) %>%
+  arrange(desc(Media_Diff_Abs))
+
+kable(analise_tamanho, 
+      caption = "Análise da Diferença Média por Tamanho do Município", 
+      digits = 2) %>%
+  kable_styling(bootstrap_options = "striped", full_width = F)
+```
+
+### 5.2. Gráficos por Tamanho
+
+Evolução da *média* de gastos para cada cluster de tamanho.
+
+```{r grafico-linha-tamanho, fig.width=10, fig.height=5}
+# Média por ano e tamanho
+dados_long_tamanho <- dados_long %>%
+  group_by(ano, tamanho, Fonte) %>%
+  summarise(Gasto_Medio = mean(Gasto_por_Aluno, na.rm = TRUE)) %>%
+  ungroup()
+
+ggplot(dados_long_tamanho, aes(x = ano, y = Gasto_Medio, color = Fonte, group = Fonte)) +
+  geom_line(linewidth = 1.2) +
+  facet_wrap(~ tamanho) + 
+  labs(
+    title = "Evolução Média do Gasto por Aluno por Tamanho de Município",
+    x = "Ano",
+    y = "Gasto Médio por Aluno (R$)",
+    color = "Fonte"
+  ) +
+  theme_minimal() +
+  theme(legend.position = "bottom")
+```
+
+```{r grafico-boxplot-tamanho, fig.width=10, fig.height=6}
+ggplot(dados, aes(x = tamanho, y = diff_abs, fill = tamanho)) +
+  geom_boxplot(show.legend = FALSE) +
+  geom_hline(yintercept = 0, linetype = "dashed", color = "red") + # Linha de referência (diferença zero)
+  labs(
+    title = "Distribuição da Diferença Absoluta (SIOPE - SICONFI)",
+    subtitle = "Agrupado por Tamanho do Município (2015-2023)",
+    x = "Tamanho do Município",
+    y = "Diferença Absoluta (R$)"
+  ) +
+  theme_light()
+```
+
+#### 5.2.1. Gráfico: Distribuição da Diferença Percentual por Tamanho (Violin)
+
+O gráfico de violino é uma alternativa ao boxplot que também mostra a "forma" da distribuição (onde os dados estão mais concentrados). Aqui, usamos a `diff_perc` para complementar o boxplot da `diff_abs`.
+
+```{r grafico-violin-tamanho, fig.width=10, fig.height=6}
+ggplot(dados, aes(x = tamanho, y = diff_perc, fill = tamanho)) +
+  geom_violin(trim = FALSE, show.legend = FALSE) +
+  geom_boxplot(width = 0.1, fill = "white", show.legend = FALSE) + # Adiciona um mini-boxplot dentro
+  geom_hline(yintercept = 0, linetype = "dashed", color = "red") +
+  labs(
+    title = "Distribuição da Diferença Percentual (SIOPE - SICONFI)",
+    subtitle = "Agrupado por Tamanho do Município (2015-2023)",
+    x = "Tamanho do Município",
+    y = "Diferença Percentual (%)"
+  ) +
+  theme_light()
+```
+
+---
